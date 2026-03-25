@@ -1,3 +1,5 @@
+[中文](README.md) | [English](README_EN.md)
+
 # PDF2MD — PDF 转 Markdown 服务
 
 基于 **Foxit PDF SDK (Python)** + **FastAPI** 构建的 PDF 转 Markdown Web 服务。
@@ -17,13 +19,14 @@
 - **目录生成** — 从 PDF 书签树自动生成嵌套 Markdown 目录
 - **Web UI** — 支持拖拽上传、实时转换进度、源码/预览双标签切换、一键下载和复制
 - **REST API** — 可供其他系统集成调用
+- **命令行工具** — 支持命令行直接转换，便于脚本集成和批量处理
 
 ---
 
 ## 项目结构
 
 ```
-pdf2md_pyweb/
+pdf2md/
 ├── app/
 │   ├── __init__.py          # 包初始化
 │   ├── config.py            # SDK License 及目录配置
@@ -32,12 +35,14 @@ pdf2md_pyweb/
 │   └── main.py              # FastAPI 路由与 Web 服务
 ├── templates/
 │   └── index.html           # Web UI 页面
-├── static/                  # 静态资源（预留）
+├── static/                  # 静态资源
 ├── uploads/                 # 上传的 PDF 文件暂存目录（自动创建）
 ├── output/                  # Markdown 输出及提取的图片
 │   └── images/              # 提取的图片存放目录
+├── convert.py               # 命令行转换脚本
 ├── requirements.txt         # Python 依赖清单
-└── run.py                   # 服务启动入口
+├── run.py                   # Web 服务启动入口
+└── README.md
 ```
 
 ---
@@ -55,12 +60,11 @@ pdf2md_pyweb/
 
 ## 部署步骤
 
-### 1. 克隆 / 获取项目
+### 1. 克隆项目
 
 ```bash
-cd /your/workspace
-git clone <repo-url> pdf2md_pyweb
-cd pdf2md_pyweb
+git clone git@github.com:AmyLin2013/pdf2md.git
+cd pdf2md
 ```
 
 ### 2. 创建虚拟环境（推荐）
@@ -89,9 +93,27 @@ pip install -r requirements.txt
 - `Jinja2` — HTML 模板引擎
 - `aiofiles` — 异步文件操作
 
-### 4. 配置 License（如需修改）
+### 4. 配置 Foxit PDF SDK License（必须）
 
-License 已内置在 `app/config.py` 中。如需更换，编辑该文件或通过环境变量设置：
+> **⚠️ 重要提示：** 本项目内置的试用 License 已过期，运行前必须替换为您自己的有效 License。
+>
+> 前往 [Foxit PDF SDK 官网](https://developers.foxit.com/products/pdf-sdk/) 申请试用或购买商用 License，获取 `SN` 和 `Key` 两个值。
+
+License 配置位于 `app/config.py` 中的 `FOXIT_SN` 和 `FOXIT_KEY` 两个变量：
+
+```python
+# app/config.py
+FOXIT_SN = os.environ.get("FOXIT_SN", "your_sn_here")
+FOXIT_KEY = os.environ.get("FOXIT_KEY", "your_key_here")
+```
+
+有两种方式设置您的 License：
+
+**方式 A：直接编辑配置文件**
+
+修改 `app/config.py`，将 `FOXIT_SN` 和 `FOXIT_KEY` 的默认值替换为您的 License 值。
+
+**方式 B：通过环境变量设置（推荐，避免将 License 提交到代码仓库）**
 
 ```bash
 # Windows PowerShell
@@ -102,6 +124,8 @@ $env:FOXIT_KEY = "your_key_here"
 export FOXIT_SN="your_sn_here"
 export FOXIT_KEY="your_key_here"
 ```
+
+如果 License 无效或已过期，启动时会报 `e_ErrInvalidLicense` 错误。
 
 ### 5. 启动服务
 
@@ -142,7 +166,17 @@ uvicorn.run(
    - 点击 **「下载 .md 文件」** 保存到本地
    - 点击 **「复制 Markdown」** 复制到剪贴板
 
-### 方式二：REST API
+### 方式二：命令行
+
+```bash
+python convert.py input.pdf                      # 输出到 input.md
+python convert.py input.pdf -o output.md         # 指定输出路径
+python convert.py input.pdf --no-images          # 不提取图片
+python convert.py input.pdf --toc                # 生成目录
+python convert.py input.pdf --keep-header-footer # 保留页眉页脚
+```
+
+### 方式三：REST API
 
 #### 转换 PDF
 
@@ -286,7 +320,9 @@ PDFDoc(path) → doc.Load()     ← 加载文档
 
 ### Q: SDK 初始化失败怎么办？
 
-检查 `app/config.py` 中的 `FOXIT_SN` 和 `FOXIT_KEY` 是否正确。错误码含义：
+最常见的原因是 License 无效。本项目内置的试用 License 已过期，请参照上方 [配置 Foxit PDF SDK License](#4-配置-foxit-pdf-sdk-license必须) 章节获取并设置您自己的 License。
+
+检查 `app/config.py` 中的 `FOXIT_SN` 和 `FOXIT_KEY` 是否正确，或环境变量是否已设置。错误码含义：
 - `e_ErrInvalidLicense` — License 无效或已过期
 - `e_ErrParam` — 参数格式错误
 
