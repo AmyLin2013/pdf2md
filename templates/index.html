@@ -42,6 +42,7 @@
             font-size: 2rem;
             font-weight: 700;
             background: linear-gradient(135deg, var(--primary), #7c3aed);
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 0.5rem;
@@ -374,6 +375,10 @@
                 <input type="checkbox" id="optSkipHF" checked>
                 过滤页眉页脚
             </label>
+            <label class="option-item">
+                <input type="checkbox" id="optHtmlTable">
+                合并单元格用HTML
+            </label>
         </div>
 
         <!-- Convert button -->
@@ -499,6 +504,7 @@
             formData.append('include_images', document.getElementById('optImages').checked);
             formData.append('include_toc', document.getElementById('optToc').checked);
             formData.append('skip_header_footer', document.getElementById('optSkipHF').checked);
+            formData.append('html_merged_table', document.getElementById('optHtmlTable').checked);
 
             try {
                 barFill.style.width = '60%';
@@ -636,18 +642,23 @@
          * Supports: headings, bold, italic, images, links, lists, tables, HR.
          */
         function simpleMarkdownToHtml(md) {
-            // 1. Extract tables into array, replace with placeholders
+            // 1. Preserve native HTML tables first (for merged-cell rendering)
+            const htmlTables = [];
+            md = extractHtmlTables(md, htmlTables);
+
+            // 2. Extract Markdown tables into array, replace with placeholders
             const tables = [];
             md = extractAndConvertTables(md, tables);
 
-            // 2. Escape HTML on remaining content
+            // 3. Escape HTML on remaining content
             let html = md
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
 
-            // 3. Restore table HTML from placeholders
-            html = html.replace(/TBLPLACEHOLDER(\d+)ENDTBL/g, (_, idx) => tables[parseInt(idx)]);
+            // 4. Restore table HTML from placeholders
+            html = html.replace(/TBLPLACEHOLDER(\d+)ENDTBL/g, (_, idx) => tables[parseInt(idx, 10)]);
+            html = html.replace(/HTMLTBLPLACEHOLDER(\d+)ENDHTMLTBL/g, (_, idx) => htmlTables[parseInt(idx, 10)]);
 
             html = html
                 // Headings
@@ -676,6 +687,18 @@
             html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
 
             return html;
+        }
+
+        /**
+         * Extract native HTML <table> blocks and replace with placeholders,
+         * so later escaping does not turn them into plain text.
+         */
+        function extractHtmlTables(md, htmlTables) {
+            return md.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
+                const placeholderIdx = htmlTables.length;
+                htmlTables.push(tableHtml);
+                return 'HTMLTBLPLACEHOLDER' + placeholderIdx + 'ENDHTMLTBL';
+            });
         }
 
         /**

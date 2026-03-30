@@ -19,6 +19,7 @@ from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 
 from .pdf_parser import (
     BookmarkItem,
+    CodeBlock,
     ImageBlock,
     LRHeadingInfo,
     LinkBlock,
@@ -275,10 +276,12 @@ def _compute_font_stats(
 
     body_size = max(size_char_count, key=size_char_count.get)
 
-    # Collect font sizes strictly larger than body AND at least 20% bigger.
-    # A size only ~10% larger (e.g. 10pt vs 9pt body) is typically a
+    # Collect font sizes strictly larger than body AND at least 15% bigger.
+    # A size only slightly larger (e.g. 10pt vs 9pt body) is typically a
     # secondary body style (TOC entries, captions), not a heading.
-    min_heading_size = body_size * 1.20
+    # Chinese documents commonly use 14pt headings with 12pt body
+    # (ratio ~1.167), so 1.15 captures this common pattern.
+    min_heading_size = body_size * 1.15
     heading_sizes = sorted(
         [fs for fs in size_char_count if fs >= min_heading_size],
         reverse=True,
@@ -418,6 +421,7 @@ def convert_to_markdown(
     include_toc: bool = False,
     skip_header_footer: bool = True,
     image_base_path: str = "images",
+    html_merged_table: bool = False,
 ) -> str:
     """
     Convert parsed PDF content to Markdown string.
@@ -429,6 +433,8 @@ def convert_to_markdown(
         skip_header_footer: Whether to detect and skip repeated
             page headers/footers (default True).
         image_base_path: Relative path prefix for image references.
+        html_merged_table: Whether to render tables with merged cells
+            as HTML <table> instead of Markdown pipe-tables.
         
     Returns:
         Markdown text.
@@ -470,6 +476,7 @@ def convert_to_markdown(
             include_images=include_images,
             image_base_path=image_base_path,
             hf_texts=hf_texts,
+            html_merged_table=html_merged_table,
         )
         lines.extend(page_lines)
 
@@ -742,6 +749,7 @@ def _convert_page(
     include_images: bool,
     image_base_path: str,
     hf_texts: FrozenSet[str] = frozenset(),
+    html_merged_table: bool = False,
 ) -> List[str]:
     """Convert a single page's content to Markdown lines."""
     lines: List[str] = []
@@ -769,6 +777,10 @@ def _convert_page(
     # two text blocks) are emitted only once with the full combined text.
     _emitted_lr_headings: set = set()
 
+    # Track bookmarks whose full title has been emitted for a prefix-matched
+    # multi-line heading, so continuation blocks can be skipped.
+    _consumed_bm_prefixes: set = set()
+
     # (y_top, item_type, md_text, bbox_or_None)
     items: List[_MergeItem] = []
 
@@ -781,6 +793,8 @@ def _convert_page(
         # Skip header / footer blocks
         if hf_texts and _is_header_footer(block, page.height, hf_texts):
             continue
+
+        skip_block = False
 
         # --- LR heading de-duplication ---
         # When an LR heading spans multiple text blocks (e.g. a wrapped
@@ -825,16 +839,48 @@ def _convert_page(
         heading_level = 0
 
         # 1) Bookmark match (most reliable for hierarchy)
-        #    Skip TOC-like lines (dot leaders) — they should stay as body text
+        #    Use space-stripped normalization so that extra whitespace
+        #    in extracted text (e.g. '（ 四）' vs bookmark '（四）')
+        #    does not break matching.  Also supports multi-line headings:
+        #    when a heading wraps across two text blocks, the first block
+        #    (a prefix of the bookmark title) emits the full bookmark
+        #    title and the second block (a suffix) is skipped.
         if not _RE_TOC_LINE.search(text):
-            for (bm_page, bm_title), bm_level in bm_heading_map.items():
-                if bm_page == page.page_index:
-                    if bm_title and (
-                        bm_title in text or text in bm_title or
-                        _normalize(bm_title) == _normalize(text)
-                    ):
-                        heading_level = bm_level
-                        break
+            text_stripped = _strip_spaces(text)
+            if len(text_stripped) >= 4:
+                # Check if this block is a continuation of a consumed
+                # multi-line heading → skip entirely.
+                for bm_key_c in _consumed_bm_prefixes:
+                    if bm_key_c[0] == page.page_index:
+                        bm_stripped_c = _strip_spaces(bm_key_c[1])
+                        if text_stripped in bm_stripped_c:
+                            skip_block = True
+                            break
+
+                if not skip_block:
+                    for (bm_page, bm_title), bm_level in bm_heading_map.items():
+                        if bm_page != page.page_index or not bm_title:
+                            continue
+                        bm_stripped = _strip_spaces(bm_title)
+                        if not bm_stripped:
+                            continue
+                        if (text_stripped == bm_stripped or
+                                bm_stripped in text_stripped or
+                                text_stripped in bm_stripped):
+                            heading_level = bm_level
+                            # If text is a proper substring of the bookmark
+                            # title, this is a multi-line heading.  Emit the
+                            # full bookmark title and mark as consumed so
+                            # subsequent continuation blocks are skipped.
+                            if (text_stripped != bm_stripped and
+                                    text_stripped in bm_stripped):
+                                text = bm_title
+                                _consumed_bm_prefixes.add(
+                                    (bm_page, bm_title))
+                            break
+
+        if skip_block:
+            continue
 
         # 2) Font-size rank heuristic
         if heading_level == 0:
@@ -887,10 +933,16 @@ def _convert_page(
 
     # ---- tables ----
     for tbl in page.table_blocks:
-        table_md = _render_table_md(tbl)
+        table_md = _render_table_md(tbl, html_merged=html_merged_table)
         if table_md:
             y_pos = tbl.bbox[3] if tbl.bbox[3] != float('-inf') else 0
             items.append((y_pos, "table", table_md, None))
+
+    # --- Code blocks from false-table reconstruction ---
+    for cb in page.code_blocks:
+        y_pos = cb.bbox[3]  # top of code region
+        code_md = "```\n" + "\n".join(cb.lines) + "\n```"
+        items.append((y_pos, "code", code_md, None))
 
     # Sort by vertical position (top of page first = largest y)
     items.sort(key=lambda x: -x[0])
@@ -915,6 +967,16 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
+def _strip_spaces(text: str) -> str:
+    """Strip ALL whitespace for bookmark matching.
+
+    PDF text extraction often introduces extra spaces inside CJK text
+    (e.g. '（ 四）' vs bookmark '（四）').  Removing all whitespace
+    gives a canonical form suitable for substring / prefix matching.
+    """
+    return re.sub(r"\s+", "", text.strip())
+
+
 def _apply_links(text: str, link_map: Dict[str, str]) -> str:
     """Replace known link texts with Markdown links."""
     for link_text, url in link_map.items():
@@ -928,31 +990,279 @@ def _apply_links(text: str, link_map: Dict[str, str]) -> str:
 # Table rendering helpers
 # ---------------------------------------------------------------------------
 
-def _render_table_md(table: TableBlock) -> str:
-    """
-    Render a TableBlock as a Markdown pipe-table.
 
-    Handles colspan by repeating the cell text across spanned columns.
-    Handles rowspan by inserting empty-string placeholders in subsequent rows
-    (GitHub-Flavoured Markdown does not truly support rowspan, so this is
-    the best approximation).
+def _has_merged_cells(table: TableBlock) -> bool:
+    """Return True if the table appears to have merged cells.
+
+    Detection heuristics (checked in order):
+    1. SDK-reported colspan/rowspan > 1 (rare — LR module usually reports 1).
+    2. Rows have differing cell counts — a strong bbox-level indicator that
+       some cells span multiple rows or columns.
+    """
+    # 1) SDK attributes
+    if any(c.colspan > 1 or c.rowspan > 1
+           for row in table.rows for c in row):
+        return True
+
+    # 2) Uneven cell counts across rows
+    cell_counts = [len(row) for row in table.rows]
+    if len(set(cell_counts)) > 1:
+        return True
+
+    return False
+
+
+def _render_table_html(table: TableBlock) -> str:
+    """Render a TableBlock as an HTML <table> with bbox-inferred merging.
+
+    Analyses cell bounding boxes to determine:
+    - **Column positions** — clustered left edges of all cells.
+    - **Row positions** — clustered bottom/top edges of all cells (each
+      unique y-band = one logical row).
+    - **colspan** — how many column boundaries a cell spans horizontally.
+    - **rowspan** — how many row boundaries a cell spans vertically.
+
+    This handles the common case where the LR module does not report
+    colspan/rowspan but the bboxes clearly show merged regions.
     """
     if not table.rows:
         return ""
 
-    # --- Step 1: Determine the logical column count -------------------------
+    all_have_bbox = all(
+        c.bbox is not None for row in table.rows for c in row
+    )
+    if not all_have_bbox:
+        # Cannot infer merging without bboxes — fall back to simple HTML
+        return _render_table_html_simple(table)
+
+    TOLERANCE = 5.0
+
+    # --- Collect all cells with their bboxes ---
+    all_cells: List[TableCell] = []
+    for row in table.rows:
+        for cell in row:
+            all_cells.append(cell)
+
+    if not all_cells:
+        return ""
+
+    # --- Build column positions from left edges ---
+    left_edges = sorted(set(c.bbox[0] for c in all_cells))
+    col_positions: List[float] = [left_edges[0]]
+    for e in left_edges[1:]:
+        if e - col_positions[-1] > TOLERANCE:
+            col_positions.append(e)
+    n_cols = len(col_positions)
+
+    # --- Build row positions from y-bands ---
+    # Each LR-provided row is one visual row; use the top (bbox[3]) of each
+    # row's cells as the row-top boundary and the bottom (bbox[1]) as the
+    # row-bottom boundary.  We cluster distinct y-bands.
+    y_boundaries: List[float] = []
+    for row in table.rows:
+        tops = [c.bbox[3] for c in row if c.bbox]
+        bottoms = [c.bbox[1] for c in row if c.bbox]
+        if tops:
+            y_boundaries.append(max(tops))
+        if bottoms:
+            y_boundaries.append(min(bottoms))
+
+    # Cluster y-boundaries into unique row edges (sorted descending = top-first)
+    y_sorted = sorted(set(y_boundaries), reverse=True)
+    row_edges: List[float] = [y_sorted[0]] if y_sorted else []
+    for y in y_sorted[1:]:
+        if row_edges[-1] - y > TOLERANCE:
+            row_edges.append(y)
+    # row_edges is sorted top→bottom (descending y).
+    # Logical row i occupies the band from row_edges[i] down to row_edges[i+1].
+    n_rows = max(len(row_edges) - 1, 1)
+
+    def _find_col(x: float) -> int:
+        best = 0
+        best_dist = abs(x - col_positions[0])
+        for i in range(1, n_cols):
+            d = abs(x - col_positions[i])
+            if d < best_dist:
+                best = i
+                best_dist = d
+        return best
+
+    def _find_row(y: float) -> int:
+        """Map a y coordinate to the row index (0 = topmost)."""
+        best = 0
+        best_dist = abs(y - row_edges[0])
+        for i in range(1, len(row_edges)):
+            d = abs(y - row_edges[i])
+            if d < best_dist:
+                best = i
+                best_dist = d
+        return best
+
+    # --- Place cells into a grid and compute spans ---
+    occupied: List[List[bool]] = [
+        [False] * n_cols for _ in range(n_rows)
+    ]
+
+    # Each entry: (row, col, rowspan, colspan, text, is_header)
+    placements: List[Tuple[int, int, int, int, str, bool]] = []
+
+    for lr_ri, row in enumerate(table.rows):
+        is_header = (lr_ri == 0) or all(c.is_header for c in row)
+        for cell in row:
+            if not cell.bbox:
+                continue
+            # Column span
+            start_col = _find_col(cell.bbox[0])
+            cs = 1
+            for i in range(start_col + 1, n_cols):
+                if col_positions[i] < cell.bbox[2] - TOLERANCE:
+                    cs += 1
+                else:
+                    break
+
+            # Row span: find which row-edges the cell's top and bottom map to
+            top_row = _find_row(cell.bbox[3])   # top of cell → first row
+            bot_row = _find_row(cell.bbox[1])   # bottom of cell → last edge
+            rs = max(bot_row - top_row, 1)
+
+            # Skip already occupied slots
+            while start_col < n_cols and occupied[top_row][start_col]:
+                start_col += 1
+            if start_col >= n_cols:
+                continue
+
+            # Mark occupied
+            for r in range(rs):
+                for c in range(cs):
+                    if top_row + r < n_rows and start_col + c < n_cols:
+                        occupied[top_row + r][start_col + c] = True
+
+            placements.append((top_row, start_col, rs, cs, cell.text.strip(), is_header))
+
+    # --- Render HTML ---
+    lines: List[str] = ['<table>']
+    # Sort placements by row then column
+    placements.sort(key=lambda p: (p[0], p[1]))
+
+    current_row = -1
+    for (r, c, rs, cs, text, is_hdr) in placements:
+        if r != current_row:
+            if current_row >= 0:
+                lines.append('  </tr>')
+            lines.append('  <tr>')
+            current_row = r
+        tag = 'th' if is_hdr else 'td'
+        attrs = ''
+        if cs > 1:
+            attrs += f' colspan="{cs}"'
+        if rs > 1:
+            attrs += f' rowspan="{rs}"'
+        lines.append(f'    <{tag}{attrs}>{text}</{tag}>')
+    if current_row >= 0:
+        lines.append('  </tr>')
+    lines.append('</table>')
+    return '\n'.join(lines)
+
+
+def _render_table_html_simple(table: TableBlock) -> str:
+    """Fallback HTML rendering without bbox-based merge detection."""
+    if not table.rows:
+        return ""
+    n_rows = len(table.rows)
+    max_cols = max((sum(c.colspan for c in row) for row in table.rows), default=0)
+    if max_cols == 0:
+        return ""
+
+    occupied: List[List[bool]] = [
+        [False] * max_cols for _ in range(n_rows)
+    ]
+    lines: List[str] = ['<table>']
+    for ri, row in enumerate(table.rows):
+        tag = 'th' if (ri == 0 or all(c.is_header for c in row)) else 'td'
+        lines.append('  <tr>')
+        col_cursor = 0
+        for cell in row:
+            while col_cursor < max_cols and occupied[ri][col_cursor]:
+                col_cursor += 1
+            if col_cursor >= max_cols:
+                break
+            cs = min(cell.colspan, max_cols - col_cursor)
+            rs = min(cell.rowspan, n_rows - ri)
+            for r in range(rs):
+                for c in range(cs):
+                    if ri + r < n_rows and col_cursor + c < max_cols:
+                        occupied[ri + r][col_cursor + c] = True
+            text = cell.text.strip()
+            attrs = ''
+            if cs > 1:
+                attrs += f' colspan="{cs}"'
+            if rs > 1:
+                attrs += f' rowspan="{rs}"'
+            lines.append(f'    <{tag}{attrs}>{text}</{tag}>')
+            col_cursor += cs
+        lines.append('  </tr>')
+    lines.append('</table>')
+    return '\n'.join(lines)
+
+
+def _render_table_md(table: TableBlock, html_merged: bool = False) -> str:
+    """
+    Render a TableBlock as a Markdown pipe-table.
+
+    If *html_merged* is True and the table contains merged cells
+    (colspan > 1 or rowspan > 1), render as an HTML <table> instead.
+
+    Uses cell bounding boxes (when available) to determine correct column
+    alignment — this handles cases where the LR module fails to report
+    rowspan and cells would otherwise be placed in the wrong column.
+
+    Falls back to colspan/rowspan-based grid building when bbox data is
+    not available.
+    """
+    if not table.rows:
+        return ""
+
+    # If requested, use HTML for tables with merged cells
+    if html_merged and _has_merged_cells(table):
+        return _render_table_html(table)
+
+    # --- Decide grid-building strategy ---
+    all_have_bbox = all(
+        c.bbox is not None for row in table.rows for c in row
+    )
+
+    if all_have_bbox:
+        grid, max_cols = _build_grid_bbox(table)
+    else:
+        grid, max_cols = _build_grid_span(table)
+
+    if max_cols == 0 or not grid:
+        return ""
+
+    # --- Render Markdown table lines ---
+    lines: List[str] = []
+    for ri, grid_row in enumerate(grid):
+        line = "| " + " | ".join(grid_row) + " |"
+        lines.append(line)
+        if ri == 0:
+            sep = "| " + " | ".join(["---"] * max_cols) + " |"
+            lines.append(sep)
+
+    return "\n".join(lines)
+
+
+def _build_grid_span(table: TableBlock) -> Tuple[List[List[str]], int]:
+    """Build table grid using colspan/rowspan attributes (original logic)."""
     max_cols = 0
     for row in table.rows:
         cols_in_row = sum(c.colspan for c in row)
         if cols_in_row > max_cols:
             max_cols = cols_in_row
     if max_cols == 0:
-        return ""
+        return [], 0
 
-    # --- Step 2: Build a grid (row × col) resolving colspan & rowspan -------
     n_rows = len(table.rows)
     grid: List[List[str]] = [["" for _ in range(max_cols)] for _ in range(n_rows)]
-    # Track which cells are occupied by a rowspan from a previous row
     occupied: List[List[bool]] = [
         [False for _ in range(max_cols)] for _ in range(n_rows)
     ]
@@ -960,41 +1270,89 @@ def _render_table_md(table: TableBlock) -> str:
     for ri, row in enumerate(table.rows):
         col_cursor = 0
         for cell in row:
-            # Skip occupied columns (from prior rowspans)
             while col_cursor < max_cols and occupied[ri][col_cursor]:
                 col_cursor += 1
             if col_cursor >= max_cols:
                 break
 
-            text = cell.text.replace("|", "\|")  # escape pipe
+            text = cell.text.replace("|", "\\|")
             cs = min(cell.colspan, max_cols - col_cursor)
             rs = min(cell.rowspan, n_rows - ri)
 
-            # Fill colspan columns
             for c in range(cs):
                 if col_cursor + c < max_cols:
                     grid[ri][col_cursor + c] = text if c == 0 else ""
-                    # Mark rowspan-occupied cells
                     for r in range(1, rs):
                         if ri + r < n_rows:
                             occupied[ri + r][col_cursor + c] = True
-                            # Optionally repeat text for first column of span
-                            # but standard MD has no rowspan, so leave blank
 
             col_cursor += cs
 
-    # --- Step 3: Render Markdown table lines --------------------------------
-    lines: List[str] = []
+    return grid, max_cols
 
-    # Determine if first row should be treated as header
-    first_row_is_header = all(c.is_header for c in table.rows[0]) if table.rows else False
 
-    for ri, grid_row in enumerate(grid):
-        line = "| " + " | ".join(grid_row) + " |"
-        lines.append(line)
-        # Insert separator after header row
-        if ri == 0:
-            sep = "| " + " | ".join(["---"] * max_cols) + " |"
-            lines.append(sep)
+def _build_grid_bbox(table: TableBlock) -> Tuple[List[List[str]], int]:
+    """Build table grid using cell bounding boxes for column alignment.
 
-    return "\n".join(lines)
+    Clusters the left edges of all cells to determine column positions,
+    then places each cell in its correct column based on its bbox.
+    This correctly handles missing rowspan information from the LR module.
+    """
+    TOLERANCE = 5.0  # points
+
+    # Collect all left edges
+    left_edges: List[float] = []
+    for row in table.rows:
+        for cell in row:
+            if cell.bbox:
+                left_edges.append(cell.bbox[0])
+
+    if not left_edges:
+        return _build_grid_span(table)
+
+    # Cluster left edges into column positions
+    sorted_edges = sorted(set(left_edges))
+    col_positions = [sorted_edges[0]]
+    for edge in sorted_edges[1:]:
+        if edge - col_positions[-1] > TOLERANCE:
+            col_positions.append(edge)
+
+    max_cols = len(col_positions)
+    if max_cols == 0:
+        return [], 0
+
+    n_rows = len(table.rows)
+    grid: List[List[str]] = [["" for _ in range(max_cols)] for _ in range(n_rows)]
+
+    def _find_col(x: float) -> int:
+        """Find the column index for a given x position."""
+        best = 0
+        best_dist = abs(x - col_positions[0])
+        for i in range(1, len(col_positions)):
+            d = abs(x - col_positions[i])
+            if d < best_dist:
+                best = i
+                best_dist = d
+        return best
+
+    for ri, row in enumerate(table.rows):
+        for cell in row:
+            if not cell.bbox:
+                continue
+            start_col = _find_col(cell.bbox[0])
+
+            # Determine colspan: count how many column boundaries
+            # fall within the cell's horizontal range
+            span = 1
+            for i in range(start_col + 1, max_cols):
+                if col_positions[i] < cell.bbox[2] - TOLERANCE:
+                    span += 1
+                else:
+                    break
+
+            text = cell.text.replace("|", "\\|")
+            for c in range(span):
+                if start_col + c < max_cols:
+                    grid[ri][start_col + c] = text if c == 0 else ""
+
+    return grid, max_cols

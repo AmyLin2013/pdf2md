@@ -4,6 +4,8 @@
 
 基于 **Foxit PDF SDK (Python)** + **FastAPI** 构建的 PDF 转 Markdown Web 服务。
 
+> 🌐 **在线体验：** [https://pdf2md.doc-tool.qihangsoftware.cn/](https://pdf2md.doc-tool.qihangsoftware.cn/)  —  无需部署，直接使用
+
 ---
 
 ## 功能特性
@@ -159,6 +161,8 @@ uvicorn.run(
 3. 勾选选项：
    - ✅ **提取图片** — 是否导出 PDF 中的嵌入图片
    - ✅ **生成目录** — 是否从书签生成 Markdown 目录
+  - ✅ **过滤页眉页脚** — 是否自动跳过重复页眉页脚
+  - ✅ **合并单元格用HTML** — 对含合并单元格的表格输出 HTML `<table>`
 4. 点击 **「开始转换」** 按钮
 5. 转换完成后可：
    - 在 **「源码」** 标签查看原始 Markdown
@@ -174,6 +178,7 @@ python convert.py input.pdf -o output.md         # 指定输出路径
 python convert.py input.pdf --no-images          # 不提取图片
 python convert.py input.pdf --toc                # 生成目录
 python convert.py input.pdf --keep-header-footer # 保留页眉页脚
+python convert.py input.pdf --html-table         # 合并单元格表格用 HTML 输出
 ```
 
 ### 方式三：REST API
@@ -184,7 +189,9 @@ python convert.py input.pdf --keep-header-footer # 保留页眉页脚
 curl -X POST http://localhost:8000/api/convert \
   -F "file=@/path/to/your/document.pdf" \
   -F "include_images=true" \
-  -F "include_toc=true"
+  -F "include_toc=false" \
+  -F "skip_header_footer=true" \
+  -F "html_merged_table=false"
 ```
 
 **响应示例：**
@@ -245,7 +252,9 @@ FastAPI 自动生成的交互式 API 文档：
 |------|------|------|--------|------|
 | `file` | File | ✅ | — | PDF 文件 |
 | `include_images` | bool | — | `true` | 是否提取图片 |
-| `include_toc` | bool | — | `true` | 是否生成目录 |
+| `include_toc` | bool | — | `false` | 是否生成目录 |
+| `skip_header_footer` | bool | — | `true` | 是否过滤重复页眉页脚 |
+| `html_merged_table` | bool | — | `false` | 是否将含合并单元格的表格输出为 HTML |
 
 ---
 

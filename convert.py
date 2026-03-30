@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--no-images", action="store_true", help="不提取图片（默认提取）")
     parser.add_argument("--toc", action="store_true", help="生成目录（默认不生成）")
     parser.add_argument("--keep-header-footer", action="store_true", help="保留页眉页脚（默认过滤）")
+    parser.add_argument("--html-table", action="store_true", help="合并单元格表格用HTML输出（默认纯Markdown）")
     args = parser.parse_args()
 
     if not os.path.isfile(args.pdf):
@@ -44,6 +45,7 @@ def main():
         include_images=not args.no_images,
         include_toc=args.toc,
         skip_header_footer=not args.keep_header_footer,
+        html_merged_table=args.html_table,
     )
 
     with open(out_path, "w", encoding="utf-8") as f:

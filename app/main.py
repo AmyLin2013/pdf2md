@@ -66,6 +66,7 @@ async def convert_pdf(
     include_images: bool = Form(True),
     include_toc: bool = Form(False),
     skip_header_footer: bool = Form(True),
+    html_merged_table: bool = Form(False),
 ):
     """
     Upload a PDF and get Markdown output.
@@ -111,6 +112,7 @@ async def convert_pdf(
             include_toc=include_toc,
             skip_header_footer=skip_header_footer,
             image_base_path="/output/images",
+            html_merged_table=html_merged_table,
         )
         convert_time = time.time() - t0
     except Exception as e:
