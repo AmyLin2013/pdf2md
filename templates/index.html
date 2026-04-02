@@ -3,779 +3,836 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF → Markdown 转换器</title>
+    <title>doc2md — Word 转 Markdown</title>
+    <!-- marked.js for Markdown rendering (pinned version for UMD compatibility) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
     <style>
         :root {
             --primary: #4f46e5;
             --primary-hover: #4338ca;
+            --success: #059669;
+            --danger: #dc2626;
             --bg: #f8fafc;
             --card: #ffffff;
             --border: #e2e8f0;
             --text: #1e293b;
-            --text-light: #64748b;
-            --success: #10b981;
-            --error: #ef4444;
+            --text-muted: #64748b;
             --radius: 12px;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
+            max-width: 960px;
+            width: 100%;
+            padding: 40px 20px;
         }
 
         header {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 32px;
         }
 
         header h1 {
             font-size: 2rem;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--primary), #7c3aed);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
+            color: var(--primary);
         }
 
         header p {
-            color: var(--text-light);
+            color: var(--text-muted);
+            margin-top: 8px;
             font-size: 0.95rem;
         }
 
-        /* Upload area */
-        .upload-card {
+        .card {
             background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        /* ── Drop Zone ── */
+        .drop-zone {
             border: 2px dashed var(--border);
             border-radius: var(--radius);
-            padding: 3rem 2rem;
+            padding: 48px 24px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-bottom: 1.5rem;
+            transition: all 0.2s;
+            background: var(--bg);
         }
 
-        .upload-card:hover, .upload-card.dragover {
+        .drop-zone:hover, .drop-zone.drag-over {
             border-color: var(--primary);
-            background: #f0f0ff;
+            background: #eef2ff;
         }
 
-        .upload-card svg {
-            width: 48px;
-            height: 48px;
-            color: var(--primary);
-            margin-bottom: 1rem;
-        }
+        .drop-zone-icon { font-size: 2.5rem; margin-bottom: 12px; }
+        .drop-zone-text { color: var(--text-muted); font-size: 0.95rem; }
+        .drop-zone-text strong { color: var(--primary); cursor: pointer; }
+        .drop-zone-hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 8px; }
 
-        .upload-card h3 {
-            font-size: 1.1rem;
-            margin-bottom: 0.5rem;
-        }
+        /* ── File List ── */
+        .file-list { margin-top: 16px; }
 
-        .upload-card p {
-            color: var(--text-light);
-            font-size: 0.85rem;
-        }
-
-        #fileInput { display: none; }
-
-        /* Options */
-        .options-row {
-            display: flex;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-
-        .option-item {
+        .file-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: space-between;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: var(--bg);
             font-size: 0.9rem;
         }
 
-        .option-item input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--primary);
+        .file-item .file-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .file-item .file-icon { font-size: 1.3rem; flex-shrink: 0; }
+        .file-item .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-item .file-size { color: var(--text-muted); font-size: 0.8rem; flex-shrink: 0; }
+
+        .file-item .remove-btn {
+            background: none; border: none; color: var(--danger);
+            cursor: pointer; font-size: 1.1rem; padding: 2px 6px;
+            border-radius: 4px; flex-shrink: 0;
+        }
+        .file-item .remove-btn:hover { background: #fef2f2; }
+
+        /* ── Options ── */
+        .options-section { margin-top: 20px; }
+
+        .options-section h3 {
+            font-size: 0.9rem; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;
         }
 
-        /* Convert button */
-        .btn-convert {
-            display: inline-flex;
+        .option-group { display: none; margin-bottom: 16px; }
+        .option-group.visible { display: block; }
+
+        .option-group label {
+            font-size: 0.85rem; font-weight: 600; color: var(--text);
+            display: block; margin-bottom: 4px;
+        }
+
+        .option-group .hint { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px; }
+
+        .option-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .option-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+        .option-row span { font-size: 0.9rem; }
+
+        input[type="text"] {
+            width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+            border-radius: 8px; font-size: 0.9rem; outline: none; transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+
+        /* ── Format Tags ── */
+        .format-tags { display: flex; gap: 8px; margin-bottom: 12px; }
+        .format-tag { font-size: 0.75rem; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+        .format-tag.docx { background: #dbeafe; color: #1e40af; }
+        .format-tag.pdf { background: #fce7f3; color: #9d174d; }
+
+        /* ── Button ── */
+        .convert-btn {
+            width: 100%; padding: 14px; background: var(--primary);
+            color: #fff; border: none; border-radius: var(--radius);
+            font-size: 1rem; font-weight: 600; cursor: pointer;
+            transition: all 0.2s; margin-top: 8px;
+        }
+        .convert-btn:hover:not(:disabled) {
+            background: var(--primary-hover); transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(79,70,229,0.3);
+        }
+        .convert-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Progress ── */
+        .progress-bar { display: none; margin-top: 16px; }
+        .progress-bar.visible { display: block; }
+        .progress-track { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+        .progress-fill {
+            height: 100%; background: var(--primary); border-radius: 3px;
+            width: 0%; transition: width 0.3s;
+            animation: indeterminate 1.5s infinite linear;
+        }
+
+        @keyframes indeterminate {
+            0% { margin-left: 0; width: 30%; }
+            50% { margin-left: 40%; width: 40%; }
+            100% { margin-left: 100%; width: 30%; }
+        }
+
+        .progress-text { text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; }
+
+        /* ── Status ── */
+        .status-message {
+            display: none; padding: 12px 16px; border-radius: 8px;
+            font-size: 0.9rem; margin-top: 16px;
+        }
+        .status-message.success { display: block; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        .status-message.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+        /* ── Preview Section ── */
+        .preview-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .preview-section.visible {
+            display: block;
+        }
+
+        .preview-header {
+            display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 2rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
+            justify-content: space-between;
+            margin-bottom: 16px;
         }
 
-        .btn-convert:hover { background: var(--primary-hover); }
-        .btn-convert:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Progress */
-        .progress-bar {
-            display: none;
-            margin: 1.5rem 0;
-        }
-
-        .progress-bar .bar {
-            height: 4px;
-            background: var(--border);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-
-        .progress-bar .bar-fill {
-            height: 100%;
-            background: var(--primary);
-            width: 0%;
-            transition: width 0.3s;
-            animation: progress-pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes progress-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        .progress-bar .status {
-            font-size: 0.85rem;
-            color: var(--text-light);
-            margin-top: 0.5rem;
-        }
-
-        /* Results area */
-        .results {
-            display: none;
-            margin-top: 2rem;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .stat-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-        }
-
-        .stat-card .value {
-            font-size: 1.5rem;
+        .preview-header h2 {
+            font-size: 1.15rem;
             font-weight: 700;
-            color: var(--primary);
+            color: var(--text);
         }
 
-        .stat-card .label {
-            font-size: 0.75rem;
-            color: var(--text-light);
-            margin-top: 0.25rem;
-        }
-
-        /* Markdown result */
-        .result-tabs {
+        .preview-tabs {
             display: flex;
             gap: 0;
-            margin-bottom: -1px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 12px;
         }
 
-        .tab-btn {
-            padding: 0.6rem 1.5rem;
-            border: 1px solid var(--border);
+        .preview-tab {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 500;
             background: var(--bg);
+            border: none;
             cursor: pointer;
-            font-size: 0.9rem;
-            border-radius: 8px 8px 0 0;
-            color: var(--text-light);
+            color: var(--text-muted);
+            transition: all 0.15s;
+            border-right: 1px solid var(--border);
         }
 
-        .tab-btn.active {
-            background: var(--card);
-            border-bottom-color: var(--card);
-            color: var(--text);
-            font-weight: 600;
-        }
+        .preview-tab:last-child { border-right: none; }
+        .preview-tab.active { background: var(--primary); color: #fff; }
+        .preview-tab:hover:not(.active) { background: #eef2ff; color: var(--primary); }
 
-        .result-content {
-            background: var(--card);
+        /* View mode tabs */
+        .view-tabs {
+            display: flex;
+            gap: 0;
             border: 1px solid var(--border);
-            border-radius: 0 var(--radius) var(--radius) var(--radius);
-            min-height: 400px;
-            max-height: 70vh;
-            overflow: auto;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 12px;
         }
 
-        .result-content .tab-panel { display: none; }
-        .result-content .tab-panel.active { display: block; }
+        .view-tab {
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            background: var(--bg);
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.15s;
+            border-right: 1px solid var(--border);
+        }
 
-        #rawMarkdown {
-            white-space: pre-wrap;
-            padding: 1.5rem;
-            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        .view-tab:last-child { border-right: none; }
+        .view-tab.active { background: var(--text); color: #fff; }
+        .view-tab:hover:not(.active) { background: #f1f5f9; }
+
+        .preview-content {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        /* Rendered Markdown preview */
+        .preview-rendered {
+            padding: 24px;
+            font-size: 0.92rem;
+            line-height: 1.7;
+        }
+
+        .preview-rendered h1 { font-size: 1.6rem; margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+        .preview-rendered h2 { font-size: 1.35rem; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+        .preview-rendered h3 { font-size: 1.15rem; margin: 12px 0 6px; }
+        .preview-rendered h4 { font-size: 1.05rem; margin: 10px 0 4px; }
+        .preview-rendered h5, .preview-rendered h6 { font-size: 0.95rem; margin: 8px 0 4px; }
+
+        .preview-rendered p { margin: 8px 0; }
+        .preview-rendered code {
+            background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace; font-size: 0.88em;
+        }
+        .preview-rendered pre {
+            background: #1e293b; color: #e2e8f0; padding: 16px;
+            border-radius: 8px; overflow-x: auto; margin: 12px 0;
+        }
+        .preview-rendered pre code { background: none; color: inherit; padding: 0; }
+        .preview-rendered blockquote {
+            border-left: 4px solid var(--primary); padding: 8px 16px;
+            margin: 12px 0; background: #f8fafc; color: var(--text-muted);
+        }
+        .preview-rendered table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        .preview-rendered th, .preview-rendered td {
+            border: 1px solid var(--border); padding: 8px 12px; text-align: left;
+        }
+        .preview-rendered th { background: var(--bg); font-weight: 600; }
+        .preview-rendered ul, .preview-rendered ol { padding-left: 24px; margin: 8px 0; }
+        .preview-rendered li { margin: 4px 0; }
+        .preview-rendered img { max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0; }
+        .preview-rendered hr { border: none; border-top: 2px solid var(--border); margin: 16px 0; }
+        .preview-rendered a { color: var(--primary); text-decoration: none; }
+        .preview-rendered a:hover { text-decoration: underline; }
+
+        /* Raw Markdown view */
+        .preview-raw {
+            display: none;
+            padding: 16px;
+            background: #1e293b;
+            color: #e2e8f0;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 0.85rem;
             line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
 
-        #previewMarkdown {
-            padding: 1.5rem;
-            line-height: 1.8;
-        }
-
-        #previewMarkdown h1 { font-size: 1.8rem; margin: 1rem 0 0.5rem; border-bottom: 2px solid var(--border); padding-bottom: 0.3rem; }
-        #previewMarkdown h2 { font-size: 1.5rem; margin: 0.8rem 0 0.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2rem; }
-        #previewMarkdown h3 { font-size: 1.25rem; margin: 0.6rem 0 0.3rem; }
-        #previewMarkdown h4 { font-size: 1.1rem; margin: 0.5rem 0 0.3rem; }
-        #previewMarkdown p { margin-bottom: 0.8rem; }
-        #previewMarkdown img { max-width: 100%; border-radius: 4px; margin: 0.5rem 0; }
-        #previewMarkdown table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
-        #previewMarkdown th, #previewMarkdown td { border: 1px solid var(--border); padding: 0.5rem; text-align: left; }
-        #previewMarkdown th { background: var(--bg); font-weight: 600; }
-        #previewMarkdown a { color: var(--primary); text-decoration: underline; }
-        #previewMarkdown ul, #previewMarkdown ol { padding-left: 1.5rem; margin-bottom: 0.8rem; }
-        #previewMarkdown hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
-
-        /* Action buttons */
-        .action-bar {
+        /* Download bar inside preview */
+        .download-bar {
             display: flex;
-            gap: 1rem;
-            margin-top: 1rem;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 14px 18px;
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 10px;
         }
 
-        .btn-action {
-            padding: 0.6rem 1.2rem;
-            border-radius: 6px;
+        .download-info {
             font-size: 0.9rem;
+            color: #166534;
+        }
+
+        .download-info .format-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        .format-badge.md-badge { background: #dbeafe; color: #1e40af; }
+        .format-badge.zip-badge { background: #fef3c7; color: #92400e; }
+
+        .download-btn {
+            padding: 10px 24px;
+            background: var(--success);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
             cursor: pointer;
-            border: 1px solid var(--border);
-            background: var(--card);
-            color: var(--text);
             transition: all 0.2s;
+            white-space: nowrap;
         }
 
-        .btn-action:hover {
-            background: var(--bg);
-            border-color: var(--primary);
-            color: var(--primary);
+        .download-btn:hover {
+            background: #047857;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(5,150,105,0.3);
         }
 
-        .btn-action.primary {
+        .copy-btn {
+            padding: 10px 18px;
             background: var(--primary);
-            color: white;
-            border-color: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
         }
 
-        .btn-action.primary:hover {
+        .copy-btn:hover {
             background: var(--primary-hover);
         }
 
-        /* Error */
-        .error-message {
-            display: none;
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            border-radius: 8px;
-            padding: 1rem 1.5rem;
-            color: var(--error);
-            margin-top: 1rem;
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 20px 0;
         }
 
-        /* File info */
-        .file-info {
-            display: none;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            font-size: 0.9rem;
-        }
-
-        .file-info .name { font-weight: 600; }
-        .file-info .size { color: var(--text-light); }
-        .file-info .remove {
-            margin-left: auto;
-            cursor: pointer;
-            color: var(--text-light);
-            font-size: 1.2rem;
-        }
-        .file-info .remove:hover { color: var(--error); }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .container { padding: 1rem; }
-            header h1 { font-size: 1.5rem; }
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-        }
+        footer a { color: var(--primary); text-decoration: none; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>📄 PDF → Markdown 转换器</h1>
-            <p>基于 Foxit PDF SDK，智能提取 PDF 结构并转换为 Markdown 格式</p>
+            <h1>📄 doc2md</h1>
+            <p>上传 Word (.docx) 或 PDF 文件，一键转换为 Markdown</p>
         </header>
 
-        <!-- Upload Area -->
-        <div class="upload-card" id="uploadArea">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <h3>拖拽 PDF 文件到此处，或点击选择</h3>
-            <p>支持 .pdf 格式</p>
-            <input type="file" id="fileInput" accept=".pdf" />
-        </div>
-
-        <!-- File info -->
-        <div class="file-info" id="fileInfo">
-            <span>📎</span>
-            <span class="name" id="fileName"></span>
-            <span class="size" id="fileSize"></span>
-            <span class="remove" id="removeFile" title="移除文件">✕</span>
-        </div>
-
-        <!-- Options -->
-        <div class="options-row">
-            <label class="option-item">
-                <input type="checkbox" id="optImages" checked>
-                提取图片
-            </label>
-            <label class="option-item">
-                <input type="checkbox" id="optToc">
-                生成目录
-            </label>
-            <label class="option-item">
-                <input type="checkbox" id="optSkipHF" checked>
-                过滤页眉页脚
-            </label>
-            <label class="option-item">
-                <input type="checkbox" id="optHtmlTable">
-                合并单元格用HTML
-            </label>
-        </div>
-
-        <!-- Convert button -->
-        <button class="btn-convert" id="btnConvert" disabled>
-            🔄 开始转换
-        </button>
-
-        <!-- Progress -->
-        <div class="progress-bar" id="progressBar">
-            <div class="bar"><div class="bar-fill" id="barFill"></div></div>
-            <div class="status" id="progressStatus">正在上传并解析 PDF...</div>
-        </div>
-
-        <!-- Error -->
-        <div class="error-message" id="errorMessage"></div>
-
-        <!-- Results -->
-        <div class="results" id="results">
-            <!-- Stats -->
-            <div class="stats-grid" id="statsGrid"></div>
-
-            <!-- Tabs -->
-            <div class="result-tabs">
-                <div class="tab-btn active" data-tab="raw">源码</div>
-                <div class="tab-btn" data-tab="preview">预览</div>
-            </div>
-            <div class="result-content">
-                <div id="rawMarkdown" class="tab-panel active"></div>
-                <div id="previewMarkdown" class="tab-panel"></div>
+        <div class="card">
+            <!-- Drop Zone -->
+            <div class="drop-zone" id="dropZone">
+                <div class="drop-zone-icon">📁</div>
+                <div class="drop-zone-text">
+                    拖拽文件到这里，或 <strong>点击选择文件</strong>
+                </div>
+                <div class="drop-zone-hint">支持 .docx、.pdf 格式，最大 100 MB，可多选</div>
+                <input type="file" id="fileInput" multiple accept=".docx,.pdf" hidden>
             </div>
 
-            <!-- Actions -->
-            <div class="action-bar">
-                <button class="btn-action primary" id="btnDownload">⬇️ 下载 .md 文件</button>
-                <button class="btn-action" id="btnDownloadMd" style="display:none">⬇️ 仅下载 .md</button>
-                <button class="btn-action" id="btnCopy">📋 复制 Markdown</button>
+            <!-- File List -->
+            <div class="file-list" id="fileList"></div>
+
+            <!-- Options -->
+            <div class="options-section" id="optionsSection" style="display:none;">
+                <h3>转换选项</h3>
+
+                <!-- Word Options -->
+                <div class="option-group" id="wordOptions">
+                    <div class="format-tags"><span class="format-tag docx">Word</span></div>
+                    <div class="option-row">
+                        <input type="checkbox" id="extractImages" checked>
+                        <span>提取嵌入图片到 images/ 目录</span>
+                    </div>
+                    <div class="option-row">
+                        <input type="checkbox" id="skipCover">
+                        <span>去掉第一页封面页</span>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label>目录处理方式</label>
+                        <div class="hint" style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">选择如何处理文档中的目录页</div>
+                        <select id="tocMode" style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.9rem; outline:none; background:var(--card);">
+                            <option value="none">保留目录（默认）</option>
+                            <option value="toc_only">只去掉目录页</option>
+                            <option value="before_toc">去掉目录及之前的内容</option>
+                            <option value="before_toc_keep_abstract">去掉目录及之前的内容，保留摘要</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label>表格单元格内换行处理</label>
+                        <div class="hint" style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">单元格中的软换行在 Markdown 表格中的替换方式</div>
+                        <select id="tableCellBreak" style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; font-size:0.9rem; outline:none; background:var(--card);">
+                            <option value="space">空格拼接（默认，兼容所有渲染器）</option>
+                            <option value="br">换行标签 &lt;br&gt;（保留换行，部分渲染器可能不支持）</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- PDF Options -->
+                <div class="option-group" id="pdfOptions">
+                    <div class="format-tags"><span class="format-tag pdf">PDF</span></div>
+                    <div class="option-row">
+                        <input type="checkbox" id="detectHeadings" checked>
+                        <span>自动检测标题（书签 → 字号排名 → 编号模式）</span>
+                    </div>
+                    <div class="option-row">
+                        <input type="checkbox" id="pdfExtractImages">
+                        <span>提取图片</span>
+                    </div>
+                    <div class="option-row">
+                        <input type="checkbox" id="skipHeaderFooter" checked>
+                        <span>自动去除页眉页脚</span>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="pageRange">指定页码（可选）</label>
+                        <div class="hint">留空表示转换全部页面，格式：1,3,5-10</div>
+                        <input type="text" id="pageRange" placeholder="例如：1,3,5-10">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Convert Button -->
+            <button class="convert-btn" id="convertBtn" disabled>
+                开始转换
+            </button>
+
+            <!-- Progress -->
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-track">
+                    <div class="progress-fill"></div>
+                </div>
+                <div class="progress-text">正在转换中，请稍候…</div>
+            </div>
+
+            <!-- Status Message -->
+            <div class="status-message" id="statusMessage"></div>
+        </div>
+
+        <!-- Preview Card -->
+        <div class="card preview-section" id="previewSection">
+            <div class="preview-header">
+                <h2>📝 转换结果预览</h2>
+                <!-- View mode toggle -->
+                <div class="view-tabs">
+                    <button class="view-tab active" data-view="rendered">渲染预览</button>
+                    <button class="view-tab" data-view="raw">Markdown 源码</button>
+                </div>
+            </div>
+
+            <!-- File tabs (for multi-file) -->
+            <div class="preview-tabs" id="previewTabs" style="display:none;"></div>
+
+            <!-- Content area -->
+            <div class="preview-content">
+                <div class="preview-rendered" id="previewRendered"></div>
+                <div class="preview-raw" id="previewRaw"></div>
+            </div>
+
+            <!-- Download bar -->
+            <div class="download-bar" id="downloadBar">
+                <div class="download-info" id="downloadInfo">
+                    ✅ 转换完成
+                    <span class="format-badge md-badge" id="formatBadge">.md</span>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="copy-btn" id="copyBtn" title="复制 Markdown 到剪贴板">📋 复制</button>
+                    <button class="download-btn" id="downloadBtn">⬇ 下载</button>
+                </div>
             </div>
         </div>
+
+        <footer>
+            doc2md v0.1.0 · 支持 .docx 和 .pdf 格式
+        </footer>
     </div>
 
     <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const fileInfo = document.getElementById('fileInfo');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-        const removeFile = document.getElementById('removeFile');
-        const btnConvert = document.getElementById('btnConvert');
-        const progressBar = document.getElementById('progressBar');
-        const barFill = document.getElementById('barFill');
-        const progressStatus = document.getElementById('progressStatus');
-        const errorMessage = document.getElementById('errorMessage');
-        const results = document.getElementById('results');
-        const statsGrid = document.getElementById('statsGrid');
-        const rawMarkdown = document.getElementById('rawMarkdown');
-        const previewMarkdown = document.getElementById('previewMarkdown');
-        const btnDownload = document.getElementById('btnDownload');
-        const btnCopy = document.getElementById('btnCopy');
+        const dropZone      = document.getElementById("dropZone");
+        const fileInput      = document.getElementById("fileInput");
+        const fileList       = document.getElementById("fileList");
+        const optSection     = document.getElementById("optionsSection");
+        const wordOpts       = document.getElementById("wordOptions");
+        const pdfOpts        = document.getElementById("pdfOptions");
+        const convertBtn     = document.getElementById("convertBtn");
+        const progressBar    = document.getElementById("progressBar");
+        const statusMsg      = document.getElementById("statusMessage");
+        const previewSection = document.getElementById("previewSection");
+        const previewTabs    = document.getElementById("previewTabs");
+        const previewRendered= document.getElementById("previewRendered");
+        const previewRaw     = document.getElementById("previewRaw");
+        const downloadBar    = document.getElementById("downloadBar");
+        const downloadInfo   = document.getElementById("downloadInfo");
+        const formatBadge    = document.getElementById("formatBadge");
+        const downloadBtn    = document.getElementById("downloadBtn");
+        const copyBtn        = document.getElementById("copyBtn");
 
-        let selectedFile = null;
-        let downloadUrl = '';
-        let mdDownloadUrl = '';
-        let markdownText = '';
+        let selectedFiles = [];
+        let currentResult = null;   // { id, files, needs_zip }
+        let activeFileIndex = 0;
 
-        // Drag & drop
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', (e) => {
+        // ── Drop Zone Events ──
+        dropZone.addEventListener("click", () => fileInput.click());
+
+        dropZone.addEventListener("dragover", (e) => {
             e.preventDefault();
-            uploadArea.classList.add('dragover');
+            dropZone.classList.add("drag-over");
         });
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
+
+        dropZone.addEventListener("dragleave", () => {
+            dropZone.classList.remove("drag-over");
         });
-        uploadArea.addEventListener('drop', (e) => {
+
+        dropZone.addEventListener("drop", (e) => {
             e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                handleFile(e.dataTransfer.files[0]);
-            }
+            dropZone.classList.remove("drag-over");
+            addFiles(e.dataTransfer.files);
         });
 
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files.length > 0) {
-                handleFile(fileInput.files[0]);
-            }
+        fileInput.addEventListener("change", () => {
+            addFiles(fileInput.files);
+            fileInput.value = "";
         });
 
-        function handleFile(file) {
-            if (!file.name.toLowerCase().endsWith('.pdf')) {
-                showError('请选择 PDF 文件');
-                return;
+        // ── File Management ──
+        function addFiles(fileListInput) {
+            const allowed = [".docx", ".pdf"];
+            for (const file of fileListInput) {
+                const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+                if (!allowed.includes(ext)) {
+                    alert(`不支持的文件格式: ${ext}\n仅支持 .docx 和 .pdf`);
+                    continue;
+                }
+                if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    continue;
+                }
+                selectedFiles.push(file);
             }
-            selectedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatSize(file.size);
-            fileInfo.style.display = 'flex';
-            uploadArea.style.display = 'none';
-            btnConvert.disabled = false;
-            hideError();
+            renderFileList();
+            updateOptions();
+            updateButton();
         }
 
-        removeFile.addEventListener('click', () => {
-            selectedFile = null;
-            fileInput.value = '';
-            fileInfo.style.display = 'none';
-            uploadArea.style.display = 'block';
-            btnConvert.disabled = true;
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFileList();
+            updateOptions();
+            updateButton();
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = "";
+            selectedFiles.forEach((file, idx) => {
+                const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+                const icon = ext === ".docx" ? "📘" : "📕";
+                const size = formatSize(file.size);
+
+                const div = document.createElement("div");
+                div.className = "file-item";
+                div.innerHTML = `
+                    <div class="file-info">
+                        <span class="file-icon">${icon}</span>
+                        <span class="file-name" title="${file.name}">${file.name}</span>
+                    </div>
+                    <span class="file-size">${size}</span>
+                    <button class="remove-btn" onclick="removeFile(${idx})" title="移除">✕</button>
+                `;
+                fileList.appendChild(div);
+            });
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+            return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+        }
+
+        // ── Options Visibility ──
+        function updateOptions() {
+            const hasDocx = selectedFiles.some(f => f.name.toLowerCase().endsWith(".docx"));
+            const hasPdf  = selectedFiles.some(f => f.name.toLowerCase().endsWith(".pdf"));
+
+            optSection.style.display = (hasDocx || hasPdf) ? "block" : "none";
+            wordOpts.classList.toggle("visible", hasDocx);
+            pdfOpts.classList.toggle("visible", hasPdf);
+        }
+
+        function updateButton() {
+            convertBtn.disabled = selectedFiles.length === 0;
+        }
+
+        // ── View Mode Toggle ──
+        document.querySelectorAll(".view-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                document.querySelectorAll(".view-tab").forEach(t => t.classList.remove("active"));
+                tab.classList.add("active");
+
+                const mode = tab.dataset.view;
+                if (mode === "rendered") {
+                    previewRendered.style.display = "block";
+                    previewRaw.style.display = "none";
+                } else {
+                    previewRendered.style.display = "none";
+                    previewRaw.style.display = "block";
+                }
+            });
         });
 
-        // Convert
-        btnConvert.addEventListener('click', async () => {
-            if (!selectedFile) return;
+        // ── Preview Helpers ──
+        function showPreview(result) {
+            currentResult = result;
+            activeFileIndex = 0;
 
-            btnConvert.disabled = true;
-            progressBar.style.display = 'block';
-            barFill.style.width = '30%';
-            progressStatus.textContent = '正在上传并解析 PDF...';
-            results.style.display = 'none';
-            hideError();
+            // File tabs (only if multiple files)
+            if (result.files.length > 1) {
+                previewTabs.style.display = "flex";
+                previewTabs.innerHTML = "";
+                result.files.forEach((f, idx) => {
+                    const btn = document.createElement("button");
+                    btn.className = "preview-tab" + (idx === 0 ? " active" : "");
+                    btn.textContent = f.name;
+                    btn.addEventListener("click", () => switchFile(idx));
+                    previewTabs.appendChild(btn);
+                });
+            } else {
+                previewTabs.style.display = "none";
+            }
+
+            renderPreviewContent(0);
+
+            // Download info
+            if (result.needs_zip) {
+                formatBadge.textContent = ".zip";
+                formatBadge.className = "format-badge zip-badge";
+                downloadBtn.textContent = "⬇ 下载 ZIP";
+            } else {
+                formatBadge.textContent = ".md";
+                formatBadge.className = "format-badge md-badge";
+                downloadBtn.textContent = "⬇ 下载 .md";
+            }
+
+            let infoText = "✅ 转换完成";
+            if (result.needs_zip) {
+                infoText += "（含图片等资源，将打包为 ZIP）";
+            } else {
+                infoText += "（纯文本，直接下载 .md 文件）";
+            }
+            downloadInfo.innerHTML = infoText + " " + formatBadge.outerHTML;
+
+            previewSection.classList.add("visible");
+
+            // Scroll to preview
+            previewSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        function switchFile(index) {
+            activeFileIndex = index;
+            document.querySelectorAll("#previewTabs .preview-tab").forEach((tab, i) => {
+                tab.classList.toggle("active", i === index);
+            });
+            renderPreviewContent(index);
+        }
+
+        function renderPreviewContent(index) {
+            const file = currentResult.files[index];
+            const mdContent = file.content;
+
+            // Rendered view
+            try {
+                previewRendered.innerHTML = marked.parse(mdContent);
+                // Rewrite image src to use the server file-serving route
+                const subfolder = file.name.replace(/\.md$/, '');
+                const baseUrl = `/files/${currentResult.id}/${subfolder}/`;
+                previewRendered.querySelectorAll('img').forEach(img => {
+                    const src = img.getAttribute('src');
+                    if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/')) {
+                        img.src = baseUrl + src;
+                    }
+                });
+            } catch (e) {
+                previewRendered.innerHTML = "<p style='color:red'>Markdown 渲染失败: " + e.message + "</p>";
+            }
+
+            // Raw view
+            previewRaw.textContent = mdContent;
+        }
+
+        // ── Copy to clipboard ──
+        copyBtn.addEventListener("click", async () => {
+            if (!currentResult || !currentResult.files[activeFileIndex]) return;
+            const mdContent = currentResult.files[activeFileIndex].content;
+            try {
+                await navigator.clipboard.writeText(mdContent);
+                const orig = copyBtn.textContent;
+                copyBtn.textContent = "✅ 已复制";
+                setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+            } catch (e) {
+                // Fallback
+                const ta = document.createElement("textarea");
+                ta.value = mdContent;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                ta.remove();
+                const orig = copyBtn.textContent;
+                copyBtn.textContent = "✅ 已复制";
+                setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+            }
+        });
+
+        // ── Download ──
+        downloadBtn.addEventListener("click", () => {
+            if (!currentResult) return;
+            window.location.href = "/download/" + currentResult.id;
+        });
+
+        // ── Conversion ──
+        convertBtn.addEventListener("click", async () => {
+            if (selectedFiles.length === 0) return;
 
             const formData = new FormData();
-            formData.append('file', selectedFile);
-            formData.append('include_images', document.getElementById('optImages').checked);
-            formData.append('include_toc', document.getElementById('optToc').checked);
-            formData.append('skip_header_footer', document.getElementById('optSkipHF').checked);
-            formData.append('html_merged_table', document.getElementById('optHtmlTable').checked);
+            selectedFiles.forEach(f => formData.append("files", f));
+
+            formData.append("extract_images", document.getElementById("extractImages").checked);
+            formData.append("skip_cover", document.getElementById("skipCover").checked);
+            formData.append("toc_mode", document.getElementById("tocMode").value);
+            formData.append("table_cell_break", document.getElementById("tableCellBreak").value);
+            formData.append("detect_headings", document.getElementById("detectHeadings").checked);
+            formData.append("pdf_extract_images", document.getElementById("pdfExtractImages").checked);
+            formData.append("skip_header_footer", document.getElementById("skipHeaderFooter").checked);
+
+            const pageRange = document.getElementById("pageRange").value.trim();
+            if (pageRange) {
+                formData.append("pages", pageRange);
+            }
+
+            // UI state
+            convertBtn.disabled = true;
+            convertBtn.textContent = "转换中…";
+            progressBar.classList.add("visible");
+            statusMsg.className = "status-message";
+            statusMsg.style.display = "none";
+            previewSection.classList.remove("visible");
 
             try {
-                barFill.style.width = '60%';
-                progressStatus.textContent = '正在转换为 Markdown...';
-
-                const resp = await fetch('/api/convert', {
-                    method: 'POST',
+                const resp = await fetch("/convert", {
+                    method: "POST",
                     body: formData,
                 });
 
-                barFill.style.width = '90%';
-
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    throw new Error(err.detail || '转换失败');
-                }
-
                 const data = await resp.json();
 
-                barFill.style.width = '100%';
-                progressStatus.textContent = '转换完成！';
+                if (!resp.ok) {
+                    let msg = data.error || "转换失败";
+                    if (data.details && data.details.length > 0) {
+                        msg += "\n" + data.details.map(d => d.file + ": " + d.error).join("\n");
+                    }
+                    throw new Error(msg);
+                }
 
-                setTimeout(() => {
-                    progressBar.style.display = 'none';
-                    showResults(data);
-                }, 500);
+                // Show partial errors as warning
+                if (data.errors && data.errors.length > 0) {
+                    const errText = data.errors.map(e => e.file + ": " + e.error).join("; ");
+                    statusMsg.className = "status-message success";
+                    statusMsg.innerHTML = "⚠️ 部分文件转换失败: <small>" + errText + "</small>";
+                }
+
+                // Show preview
+                showPreview(data);
 
             } catch (err) {
-                progressBar.style.display = 'none';
-                showError(err.message);
-                btnConvert.disabled = false;
+                statusMsg.className = "status-message error";
+                statusMsg.textContent = "❌ " + err.message;
+            } finally {
+                convertBtn.disabled = false;
+                convertBtn.textContent = "开始转换";
+                progressBar.classList.remove("visible");
             }
         });
-
-        function showResults(data) {
-            markdownText = data.markdown;
-            downloadUrl = data.download_url;
-
-            // Update download button text based on whether images exist
-            const btnDl = document.getElementById('btnDownload');
-            const btnDlMd = document.getElementById('btnDownloadMd');
-            if (data.has_images) {
-                btnDl.textContent = '⬇️ 下载 .zip 包 (含图片)';
-                // Also offer plain md download
-                mdDownloadUrl = data.download_url.replace('.zip', '.md');
-                btnDlMd.style.display = 'inline-block';
-            } else {
-                btnDl.textContent = '⬇️ 下载 .md 文件';
-                mdDownloadUrl = '';
-                btnDlMd.style.display = 'none';
-            }
-
-            // Stats
-            const stats = data.stats;
-            statsGrid.innerHTML = `
-                <div class="stat-card"><div class="value">${stats.page_count}</div><div class="label">页数</div></div>
-                <div class="stat-card"><div class="value">${stats.text_blocks}</div><div class="label">文本块</div></div>
-                <div class="stat-card"><div class="value">${stats.images_extracted}</div><div class="label">图片</div></div>
-                <div class="stat-card"><div class="value">${stats.tables_extracted || 0}</div><div class="label">表格</div></div>
-                <div class="stat-card"><div class="value">${stats.links_found}</div><div class="label">链接</div></div>
-                <div class="stat-card"><div class="value">${stats.bookmarks}</div><div class="label">书签</div></div>
-                <div class="stat-card"><div class="value">${stats.parse_time_ms + stats.convert_time_ms}ms</div><div class="label">耗时</div></div>
-            `;
-
-            // Raw markdown
-            rawMarkdown.textContent = markdownText;
-
-            // Preview – simple conversion
-            previewMarkdown.innerHTML = simpleMarkdownToHtml(markdownText);
-
-            results.style.display = 'block';
-            btnConvert.disabled = false;
-        }
-
-        // Tabs
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.tab === 'raw' ? 'rawMarkdown' : 'previewMarkdown').classList.add('active');
-            });
-        });
-
-        // Download
-        btnDownload.addEventListener('click', () => {
-            if (downloadUrl) {
-                window.open(downloadUrl, '_blank');
-            }
-        });
-
-        document.getElementById('btnDownloadMd').addEventListener('click', () => {
-            if (mdDownloadUrl) {
-                window.open(mdDownloadUrl, '_blank');
-            }
-        });
-
-        // Copy
-        btnCopy.addEventListener('click', async () => {
-            try {
-                await navigator.clipboard.writeText(markdownText);
-                btnCopy.textContent = '✅ 已复制！';
-                setTimeout(() => { btnCopy.textContent = '📋 复制 Markdown'; }, 2000);
-            } catch {
-                // Fallback
-                const ta = document.createElement('textarea');
-                ta.value = markdownText;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                btnCopy.textContent = '✅ 已复制！';
-                setTimeout(() => { btnCopy.textContent = '📋 复制 Markdown'; }, 2000);
-            }
-        });
-
-        // Helpers
-        function formatSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-        }
-
-        function showError(msg) {
-            errorMessage.textContent = '❌ ' + msg;
-            errorMessage.style.display = 'block';
-        }
-
-        function hideError() {
-            errorMessage.style.display = 'none';
-        }
-
-        /**
-         * Simple Markdown → HTML converter for preview.
-         * Supports: headings, bold, italic, images, links, lists, tables, HR.
-         */
-        function simpleMarkdownToHtml(md) {
-            // 1. Preserve native HTML tables first (for merged-cell rendering)
-            const htmlTables = [];
-            md = extractHtmlTables(md, htmlTables);
-
-            // 2. Extract Markdown tables into array, replace with placeholders
-            const tables = [];
-            md = extractAndConvertTables(md, tables);
-
-            // 3. Escape HTML on remaining content
-            let html = md
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-
-            // 4. Restore table HTML from placeholders
-            html = html.replace(/TBLPLACEHOLDER(\d+)ENDTBL/g, (_, idx) => tables[parseInt(idx, 10)]);
-            html = html.replace(/HTMLTBLPLACEHOLDER(\d+)ENDHTMLTBL/g, (_, idx) => htmlTables[parseInt(idx, 10)]);
-
-            html = html
-                // Headings
-                .replace(/^###### (.+)$/gm, '<h6>$1</h6>')
-                .replace(/^##### (.+)$/gm, '<h5>$1</h5>')
-                .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                // HR
-                .replace(/^---$/gm, '<hr>')
-                // Bold
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                // Italic
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                // Images
-                .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
-                // Links
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-                // Unordered lists
-                .replace(/^- (.+)$/gm, '<li>$1</li>')
-                // Paragraphs (skip lines that are already HTML tags or table placeholder residue)
-                .replace(/^(?!<[hH1-6lr]|<li|<img|<a|<hr|<strong|<em|<ul|<\/ul|<table|<\/table|<thead|<\/thead|<tbody|<\/tbody|<tr|<\/tr|<th|<\/th|<td|<\/td|\s*$)(.+)$/gm, '<p>$1</p>');
-
-            // Wrap consecutive <li> in <ul>
-            html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-
-            return html;
-        }
-
-        /**
-         * Extract native HTML <table> blocks and replace with placeholders,
-         * so later escaping does not turn them into plain text.
-         */
-        function extractHtmlTables(md, htmlTables) {
-            return md.replace(/<table\b[\s\S]*?<\/table>/gi, (tableHtml) => {
-                const placeholderIdx = htmlTables.length;
-                htmlTables.push(tableHtml);
-                return 'HTMLTBLPLACEHOLDER' + placeholderIdx + 'ENDHTMLTBL';
-            });
-        }
-
-        /**
-         * Extract Markdown tables, convert to HTML, store in array,
-         * and replace in source with plain-text placeholders.
-         */
-        function extractAndConvertTables(md, tables) {
-            const lines = md.split('\n');
-            const result = [];
-            let i = 0;
-
-            while (i < lines.length) {
-                // Detect table: a line with |, followed by a separator line like |---|---|
-                if (i + 1 < lines.length &&
-                    lines[i].trim().startsWith('|') &&
-                    lines[i + 1].trim().match(/^\|[\s:]*-{2,}[\s:]*(\|[\s:]*-{2,}[\s:]*)*\|?$/)) {
-
-                    // Parse header
-                    const headerCells = parseTableRow(lines[i]);
-                    const separatorLine = lines[i + 1].trim();
-                    // Parse alignment from separator
-                    const aligns = separatorLine.split('|').filter(c => c.trim()).map(c => {
-                        c = c.trim();
-                        if (c.startsWith(':') && c.endsWith(':')) return 'center';
-                        if (c.endsWith(':')) return 'right';
-                        return 'left';
-                    });
-
-                    let tableHtml = '<table>\n<thead>\n<tr>';
-                    headerCells.forEach((cell, idx) => {
-                        const align = aligns[idx] || 'left';
-                        tableHtml += '<th style="text-align:' + align + '">' + escapeHtmlForTable(cell) + '</th>';
-                    });
-                    tableHtml += '</tr>\n</thead>\n<tbody>\n';
-
-                    i += 2; // skip header + separator
-
-                    // Parse body rows
-                    while (i < lines.length && lines[i].trim().startsWith('|')) {
-                        const cells = parseTableRow(lines[i]);
-                        tableHtml += '<tr>';
-                        cells.forEach((cell, idx) => {
-                            const align = aligns[idx] || 'left';
-                            tableHtml += '<td style="text-align:' + align + '">' + escapeHtmlForTable(cell) + '</td>';
-                        });
-                        tableHtml += '</tr>\n';
-                        i++;
-                    }
-
-                    tableHtml += '</tbody>\n</table>';
-                    const placeholderIdx = tables.length;
-                    tables.push(tableHtml);
-                    result.push('TBLPLACEHOLDER' + placeholderIdx + 'ENDTBL');
-                } else {
-                    result.push(lines[i]);
-                    i++;
-                }
-            }
-
-            return result.join('\n');
-        }
-
-        function parseTableRow(line) {
-            line = line.trim();
-            if (line.startsWith('|')) line = line.substring(1);
-            if (line.endsWith('|')) line = line.substring(0, line.length - 1);
-            return line.split('|').map(c => c.trim());
-        }
-
-        function escapeHtmlForTable(str) {
-            return str
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>');
-        }
     </script>
 </body>
 </html>
