@@ -4,7 +4,11 @@
 
 基于 **Foxit PDF SDK (Python)** + **FastAPI** 构建的 PDF 转 Markdown Web 服务。
 
-> 🌐 **在线体验：** [https://pdf2md.doc-tool.qihangsoftware.cn/](https://pdf2md.doc-tool.qihangsoftware.cn/)  —  无需部署，直接使用
+> 🌐 **在线体验（无需本地部署）：**
+>
+> - **PDF → Markdown：** [https://doc-tools.qihangsoftware.cn/pdf2md](https://doc-tools.qihangsoftware.cn/pdf2md)
+>
+> 可在上述地址体验转换效果。技术交流:[84551368@qq.com](mailto:84551368@qq.com)。
 
 ---
 
@@ -51,12 +55,12 @@ pdf2md/
 
 ## 环境要求
 
-| 项目 | 要求 |
-|------|------|
-| 操作系统 | Windows 10/11 或 Linux |
-| Python | 3.8 — 3.12 |
+| 项目          | 要求                                 |
+| ------------- | ------------------------------------ |
+| 操作系统      | Windows 10/11 或 Linux               |
+| Python        | 3.8 — 3.12                          |
 | Foxit PDF SDK | 通过 pip 安装 `FoxitPDFSDKPython3` |
-| 内存 | 建议 ≥ 4 GB |
+| 内存          | 建议 ≥ 4 GB                         |
 
 ---
 
@@ -88,6 +92,7 @@ pip install -r requirements.txt
 ```
 
 依赖列表：
+
 - `FoxitPDFSDKPython3` — Foxit PDF SDK Python 绑定
 - `fastapi` — Web 框架
 - `uvicorn[standard]` — ASGI 服务器
@@ -161,8 +166,10 @@ uvicorn.run(
 3. 勾选选项：
    - ✅ **提取图片** — 是否导出 PDF 中的嵌入图片
    - ✅ **生成目录** — 是否从书签生成 Markdown 目录
-  - ✅ **过滤页眉页脚** — 是否自动跳过重复页眉页脚
-  - ✅ **合并单元格用HTML** — 对含合并单元格的表格输出 HTML `<table>`
+
+- ✅ **过滤页眉页脚** — 是否自动跳过重复页眉页脚
+- ✅ **合并单元格用HTML** — 对含合并单元格的表格输出 HTML `<table>`
+
 4. 点击 **「开始转换」** 按钮
 5. 转换完成后可：
    - 在 **「源码」** 标签查看原始 Markdown
@@ -232,6 +239,7 @@ curl http://localhost:8000/api/health
 #### Swagger 文档
 
 FastAPI 自动生成的交互式 API 文档：
+
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
@@ -239,22 +247,22 @@ FastAPI 自动生成的交互式 API 文档：
 
 ## API 参考
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/` | Web UI 页面 |
-| `POST` | `/api/convert` | 上传 PDF 并转换为 Markdown |
-| `GET` | `/api/download/{filename}` | 下载已转换的 .md 文件 |
-| `GET` | `/api/health` | 服务健康检查 |
+| 方法     | 路径                         | 说明                       |
+| -------- | ---------------------------- | -------------------------- |
+| `GET`  | `/`                        | Web UI 页面                |
+| `POST` | `/api/convert`             | 上传 PDF 并转换为 Markdown |
+| `GET`  | `/api/download/{filename}` | 下载已转换的 .md 文件      |
+| `GET`  | `/api/health`              | 服务健康检查               |
 
 ### `POST /api/convert` 参数
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `file` | File | ✅ | — | PDF 文件 |
-| `include_images` | bool | — | `true` | 是否提取图片 |
-| `include_toc` | bool | — | `false` | 是否生成目录 |
-| `skip_header_footer` | bool | — | `true` | 是否过滤重复页眉页脚 |
-| `html_merged_table` | bool | — | `false` | 是否将含合并单元格的表格输出为 HTML |
+| 参数                   | 类型 | 必填 | 默认值    | 说明                                |
+| ---------------------- | ---- | ---- | --------- | ----------------------------------- |
+| `file`               | File | ✅   | —        | PDF 文件                            |
+| `include_images`     | bool | —   | `true`  | 是否提取图片                        |
+| `include_toc`        | bool | —   | `false` | 是否生成目录                        |
+| `skip_header_footer` | bool | —   | `true`  | 是否过滤重复页眉页脚                |
+| `html_merged_table`  | bool | —   | `false` | 是否将含合并单元格的表格输出为 HTML |
 
 ---
 
@@ -300,15 +308,14 @@ PDFDoc(path) → doc.Load()     ← 加载文档
 1. **书签优先**：如果 PDF 包含书签(Bookmark)，将书签标题与页面文本块进行模糊匹配，匹配到的文本块标记为对应层级的标题
 2. **LR 版面分析**：利用 Foxit SDK 的 Layout Recognition 模块自动识别标题区域及层级。当 SDK 将跨行排列的编号标题（如 `3.2 企业自身发展……`）误判为单行表格时，解析器会通过正则匹配章节编号模式（`X.Y`、`第X章`、`一、`、`（一）` 等）检测并修正，将其提升为正确层级的标题
 3. **字号启发式**：统计全文档字号分布，找到"正文字号"（占字符总数最多的字号），然后按比例映射标题层级：
-
    | 字号/正文字号 比值 | 标题层级 |
-   |-------------------|----------|
-   | ≥ 2.0 | H1 |
-   | ≥ 1.7 | H2 |
-   | ≥ 1.4 | H3 |
-   | ≥ 1.2（粗体） | H4 |
-   | ≥ 1.05（粗体） | H5 |
-   | = 1.0（粗体） | H6 |
+   | ------------------ | -------- |
+   | ≥ 2.0             | H1       |
+   | ≥ 1.7             | H2       |
+   | ≥ 1.4             | H3       |
+   | ≥ 1.2（粗体）     | H4       |
+   | ≥ 1.05（粗体）    | H5       |
+   | = 1.0（粗体）      | H6       |
 
 ### 段落合并策略
 
@@ -332,6 +339,7 @@ PDFDoc(path) → doc.Load()     ← 加载文档
 最常见的原因是 License 无效。本项目内置的试用 License 已过期，请参照上方 [配置 Foxit PDF SDK License](#4-配置-foxit-pdf-sdk-license必须) 章节获取并设置您自己的 License。
 
 检查 `app/config.py` 中的 `FOXIT_SN` 和 `FOXIT_KEY` 是否正确，或环境变量是否已设置。错误码含义：
+
 - `e_ErrInvalidLicense` — License 无效或已过期
 - `e_ErrParam` — 参数格式错误
 
