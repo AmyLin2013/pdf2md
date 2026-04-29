@@ -9,6 +9,12 @@
 > - **PDF → Markdown：** [https://doc-tools.qihangsoftware.cn/pdf2md](https://doc-tools.qihangsoftware.cn/pdf2md)
 >
 > 可在上述地址体验转换效果。技术交流:[84551368@qq.com](mailto:84551368@qq.com)。
+>
+> **相关blog文章：**
+>
+> - [【pdf2md-1：开篇】高保真PDF转MarkDown附源码（标题/表格/图片全还原）](https://blog.csdn.net/lzfly/article/details/159246559)
+> - [【pdf2md-2:关键核心】PDF 转 Markdown 技术拆解：两阶段流水线、四级标题检测与段落智能合并](https://blog.csdn.net/lzfly/article/details/159250536)
+> - [【pdf2md-3:实现揭秘】福昕PDF SDK Python 开发实战：从逐字符提取到 LR 版面分析](https://blog.csdn.net/lzfly/article/details/159285997)
 
 ---
 
@@ -307,8 +313,7 @@ PDFDoc(path) → doc.Load()     ← 加载文档
 
 1. **书签优先**：如果 PDF 包含书签(Bookmark)，将书签标题与页面文本块进行模糊匹配，匹配到的文本块标记为对应层级的标题
 2. **LR 版面分析**：利用 Foxit SDK 的 Layout Recognition 模块自动识别标题区域及层级。当 SDK 将跨行排列的编号标题（如 `3.2 企业自身发展……`）误判为单行表格时，解析器会通过正则匹配章节编号模式（`X.Y`、`第X章`、`一、`、`（一）` 等）检测并修正，将其提升为正确层级的标题
-3. **字号启发式**：统计全文档字号分布，找到"正文字号"（占字符总数最多的字号），然后按比例映射标题层级：
-   | 字号/正文字号 比值 | 标题层级 |
+3. **字号启发式**：统计全文档字号分布，找到"正文字号"（占字符总数最多的字号），然后按比例映射标题层级：| 字号/正文字号 比值 | 标题层级 |
    | ------------------ | -------- |
    | ≥ 2.0             | H1       |
    | ≥ 1.7             | H2       |
